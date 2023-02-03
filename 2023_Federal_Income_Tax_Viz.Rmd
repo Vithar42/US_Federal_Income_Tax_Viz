@@ -285,10 +285,8 @@ ht_et %>%
 
 
 
-## TODO: include the standard deudction
 ## TODO: Make one for a married couple with two kids. Remove 12k of taxed income for traditional Roth IRA contributions and whatever the child tax credit is now...
 ## TODO: also include social security and medicare
-## TODO: redo horizontal plot to include myth plot for side by side.
 ## TODO: Add any federal items from this list: Except you are missing social security, medicare, state income tax, federal unemployment tax, state unemployment tax, local income tax
 
 
