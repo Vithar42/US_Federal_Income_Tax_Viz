@@ -1,0 +1,294 @@
+---
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+
+library(tidyverse)
+library(scales)
+library(gridExtra)
+library(huxtable)
+library(janitor)
+library(ggrepel)
+
+# Define color palette
+color = c("#a1efc4", "#e2b7b8")
+
+# Create raw tax bracket data for the year 2021
+taxbrackets_raw_2021 <- tribble(
+  ~label, ~TaxRate, ~upper_Bracket,
+  "Tax", 0.10,    9950,
+  "Tax", 0.12,   40525,
+  "Tax", 0.22,   86375,
+  "Tax", 0.24,  164925,
+  "Tax", 0.32,  209425,
+  "Tax", 0.35,  523600,
+  "Tax", 0.37,  10000000 
+)
+
+# Store the standard deduction value for the year 2023
+standard_deduction_2023 <- 13850
+
+# Create raw tax bracket data for the year 2023
+taxbrackets_raw_2023 <- tribble(
+  ~label, ~TaxRate, ~upper_Bracket,
+  "Tax", 0.00, standard_deduction_2023,
+  "Tax", 0.10,   11000 + standard_deduction_2023,
+  "Tax", 0.12,   44725 + standard_deduction_2023,
+  "Tax", 0.22,   95375 + standard_deduction_2023,
+  "Tax", 0.24,  182100 + standard_deduction_2023,
+  "Tax", 0.32,  231250 + standard_deduction_2023,
+  "Tax", 0.35,  578125 + standard_deduction_2023,
+  "Tax", 0.37,  10000000 + standard_deduction_2023
+)
+
+# Store the current year's tax bracket data
+taxbrackets_raw <- taxbrackets_raw_2023
+
+# Store the value of the earned income
+earned <- 120000
+
+# 2021 tax data from: https://www.irs.gov/newsroom/irs-provides-tax-inflation-adjustments-for-tax-year-2021
+# 2023 tax data from: https://www.irs.gov/newsroom/irs-provides-tax-inflation-adjustments-for-tax-year-2023
+
+```
+# 2023 Update
+
+Based on the IRS 2023 
+
+## Myth: If you earn $`r earned/1000`k
+
+```{r wrangling1}
+
+taxbrackets_wrong <- taxbrackets_raw %>%
+  mutate(lower_Bracket = lag(upper_Bracket,1) + 1) %>%
+  select(label, TaxRate, lower_Bracket, upper_Bracket) %>%
+  replace(is.na(.), 0)
+
+df_wrong <- taxbrackets_wrong %>%
+  filter(lower_Bracket <= earned & upper_Bracket > earned) %>%
+  mutate(label = if_else(label != "TakeHome", "TakeHome", "ted")) %>%
+  rbind(taxbrackets_wrong %>% filter(lower_Bracket <= earned & upper_Bracket > earned)) %>%
+  mutate(lower_Bracket = 0,
+         upper_Bracket = if_else(upper_Bracket >= earned, earned, upper_Bracket),
+         ymin = if_else(label == "TakeHome", 0, 0),
+         ymax = if_else(label == "TakeHome", 1, TaxRate),
+         xmin = lower_Bracket,
+         taxedamount = (upper_Bracket - lower_Bracket)*TaxRate,
+         xmax = upper_Bracket) %>%
+  mutate(labX = (upper_Bracket - lower_Bracket)/2 + lower_Bracket,
+         labY = if_else(label == "TakeHome", 0.5, TaxRate),
+         lablabel = if_else(label == "TakeHome", upper_Bracket - taxedamount, taxedamount))
+
+```
+
+
+
+
+
+```{r plot1,	fig.width=8, fig.height=1.5}
+
+seq_Break <- max(df_wrong$upper_Bracket)/5
+
+p1 <- ggplot(df_wrong) + 
+  geom_rect(aes(ymin = ymin, ymax = ymax, 
+                xmin = xmin, xmax = xmax, 
+                fill = label),
+            colour = ('grey')) +
+  geom_text(data = df_wrong %>% filter(label == "TakeHome"), aes(labX, labY, label = dollar(lablabel))) +
+  geom_text(data = df_wrong %>% filter(label == "Tax"), aes(labX, labY/2, label = dollar(lablabel))) +
+  geom_text(data = df_wrong %>% filter(label == "Tax"), aes(labX, labY, label = percent(TaxRate))) +
+  theme_void() +
+  theme(legend.position = "none",
+        axis.text.y = element_text(),
+        axis.line.y = element_line(),
+        axis.ticks.y = element_line() ,
+        axis.text.x = element_text(),
+        axis.line.x = element_line(),
+        axis.ticks.x = element_line() , 
+        axis.ticks.length = unit(-.2, "cm")) +
+  scale_x_continuous(labels=dollar_format(), breaks = append(c(0),df_wrong$upper_Bracket)) +
+  scale_y_continuous(labels=percent_format()) +
+  scale_fill_manual(values =  color)
+
+p1
+
+```
+
+
+People **wrongly** think a `r percent((df_wrong %>% filter(label == "Tax"))$TaxRate)` marginal tax means you will pay a total of `r dollar((df_wrong %>% filter(label == "Tax"))$lablabel)`
+
+## Fact: If you Earn $`r earned/1000`k
+
+Assuming the full standard deduction.
+
+```{r wrangling2}
+
+taxbrackets <- taxbrackets_raw %>%
+  mutate(lower_Bracket = lag(upper_Bracket,1) + 1) %>%
+  select(label, TaxRate, lower_Bracket, upper_Bracket) %>%
+  replace(is.na(.), 0)
+
+df <- taxbrackets %>%
+  filter(lower_Bracket <= earned) %>%
+  mutate(label = if_else(label != "TakeHome", "TakeHome", "ted")) %>%
+  rbind(taxbrackets %>% filter(lower_Bracket <= earned)) %>%
+  mutate(upper_Bracket = if_else(upper_Bracket >= earned, earned, upper_Bracket),
+         ymin = if_else(label == "TakeHome", 0, 0),
+         ymax = if_else(label == "TakeHome", 1, TaxRate),
+         xmin = if_else(label == "TakeHome", lower_Bracket, lower_Bracket),
+         taxedamount = (upper_Bracket - lower_Bracket)*TaxRate,
+         xmax = upper_Bracket) %>%
+  mutate(labX = (upper_Bracket - lower_Bracket)/2 + lower_Bracket,
+         labY = if_else(label == "TakeHome", 0.5, TaxRate),
+         lablabel = if_else(label == "TakeHome", (upper_Bracket - lower_Bracket) - taxedamount, taxedamount),
+         lablabel = if_else(is.na(lablabel),upper_Bracket,lablabel))
+```
+
+```{r Plot2,	fig.width=8, fig.height=1.5}
+
+p2 <- ggplot(df) + 
+  geom_rect(aes(ymin = ymin, ymax = ymax, 
+                xmin = xmin, xmax = xmax, 
+                fill = label),
+            colour = ('grey')) +
+  geom_text(data = df %>% filter(label == "TakeHome"), aes(labX, labY, label =  dollar(lablabel, 1))) +
+  geom_text(data = df %>% filter(label == "Tax", lablabel != 0), aes(labX, labY/2, label =  dollar(lablabel, 1))) +
+  geom_text(data = df %>% filter(label == "Tax", TaxRate != 0), aes(labX, labY + .06, label = percent(TaxRate,1))) +
+  geom_text(data = df %>% filter(label == "Tax", lablabel == 0), aes(labX, labY/2, label =  dollar(lablabel, 1)), nudge_x = 2000, nudge_y = .06) +
+  geom_text(data = df %>% filter(label == "Tax", TaxRate == 0), aes(labX, labY + .06, label = percent(TaxRate,1)), nudge_x = -2000) +
+  theme_void() +
+  theme(legend.position = "none",
+        axis.text.y = element_text(),
+        axis.line.y = element_line(),
+        axis.ticks.y = element_line() ,
+        axis.text.x = element_text(),
+        axis.line.x = element_line(),
+        axis.ticks.x = element_line() , 
+        axis.ticks.length = unit(-.2, "cm")) +
+  scale_x_continuous(labels=dollar_format(), breaks = append(c(0),df$upper_Bracket)) +
+  scale_y_continuous(labels=percent_format()) +
+  scale_fill_manual(values =  color)
+
+
+p2
+
+```
+
+## Comparison of myth vs actual
+
+```{r Plot3, fig.width=8, fig.height=1.75}
+
+df3 <- df_wrong%>% 
+  group_by(label) %>%
+  mutate(taxedamountcum = cumsum(lablabel),
+         taxedamountcum = if_else(label == "TakeHome" & taxedamountcum != earned, earned, taxedamountcum),
+         taxedamountcum = ceiling(taxedamountcum)) %>%
+  filter(upper_Bracket == earned) %>%
+  mutate(label = paste(label," wrong"))
+
+df2 <- df %>% 
+  group_by(label) %>%
+  mutate(taxedamountcum = cumsum(lablabel),
+         taxedamountcum = if_else(label == "TakeHome" & taxedamountcum != earned, earned, taxedamountcum),
+         taxedamountcum = ceiling(taxedamountcum)) %>%
+  filter(upper_Bracket == earned)%>%
+  mutate(label = paste(label," actual"))
+
+df4 <- df2 %>%
+  rbind(df3)
+
+
+color4 = c("#a1efc4", "#a1efc4", "#e2b7b8", "#e2b7b8")
+
+p3 <- ggplot(df2) +
+   geom_rect(data = df2, aes(ymin = 0, ymax = 0.5, 
+                xmin = 0, xmax = taxedamountcum, 
+                fill = label),
+            colour = ('black')) +
+   geom_rect(data = df3, aes(ymin = 0.5, ymax = 1, 
+                xmin = 0, xmax = taxedamountcum, 
+                fill = label),
+            colour = ('black')) +
+  theme_void() +
+  theme(legend.position = "none",
+        axis.text.y = element_text(colour = "white"),
+        axis.text.x = element_text(),
+        axis.line.x = element_line(),
+        axis.ticks.x = element_line() , 
+        axis.ticks.length = unit(-.2, "cm")) +
+  scale_x_continuous(labels=dollar_format(accuracy = 1), breaks = append(c(0),df4$taxedamountcum)) +
+  scale_fill_manual(values =  color4) +
+  annotate("text", x = 0 - 6000, y = 0.75, label = "Myth") +
+  geom_text(data = df_wrong %>% filter(label == "TakeHome"), aes(labX, .75, label = dollar(lablabel))) +
+  geom_text(data = df_wrong %>% filter(label == "Tax"), aes(taxedamount/2, 0.75, label = dollar(lablabel))) +
+  geom_text(data = df_wrong %>% filter(label == "Tax"), aes(taxedamount+5000, 0.75, label = percent(TaxRate))) +
+
+  annotate("text", x = 0 - 6000, y = 0.25, label = "Fact") +
+  geom_text(data = df2 %>% filter(label == "Tax  actual"), aes(labX/2, 0.25, label =  dollar(upper_Bracket - taxedamountcum, 1))) +
+  geom_text(data = df2 %>% filter(label == "Tax  actual"), aes(taxedamountcum/2, 0.25, label =  dollar(taxedamountcum, 1))) +
+  geom_text(data = df2 %>% filter(label == "Tax  actual"), aes(taxedamountcum + 5000, 0.25, label = percent(taxedamountcum/earned,1))) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.margin = unit(c(1,1,0.5,0.5),"cm"))
+
+
+p3
+
+```
+
+
+You actually pay:
+
+```{r}
+ 
+df_et <- df %>%
+  filter(label == "TakeHome") %>%
+  mutate(taxedamount = round(taxedamount, 0),
+         on = "on the next",
+         `for` = "for a total of",
+         on = if_else(is.na(lag(on)), "on the first", on),
+         Income = upper_Bracket - lag(upper_Bracket,1),
+         Income = if_else(is.na(Income), upper_Bracket, Income),
+         keep = Income - taxedamount) %>%
+  select(tr = TaxRate, on, Income, `for`, Tax = taxedamount, keep) %>%
+  adorn_totals(where = "row", 
+               fill = "", 
+               na.rm = TRUE, 
+               name = "Total", 
+               contains(c("Income","Tax", "keep"))) %>%
+  mutate(on = if_else(on == "", "taxed earnings of",on),
+         `for` = if_else(`for` == "", "for a total of ",`for`))
+
+ht_et <- as_hux(df_et)
+
+
+l = length(df_et$Income)
+
+ht_et %>%
+  style_headers(text_color = "white") %>%
+  set_bottom_border(row = l, col = everywhere) %>%
+  set_all_padding(0) %>% 
+  set_left_padding(4) %>%
+  set_right_padding(4)  %>%
+  set_number_format(-1, c("Income", "Tax", "keep"), fmt_pretty()) %>%
+  set_number_format(-1, c("tr"), fmt_percent(digits = 0)) %>%
+  set_cell_properties(1, 3, text_color = "black") %>%
+  set_cell_properties(1, 5, text_color = "black") %>%
+  set_cell_properties(1, 6, text_color = "black")
+
+```
+
+
+
+## TODO: include the standard deudction
+## TODO: Make one for a married couple with two kids. Remove 12k of taxed income for traditional Roth IRA contributions and whatever the child tax credit is now...
+## TODO: also include social security and medicare
+## TODO: redo horizontal plot to include myth plot for side by side.
+## TODO: Add any federal items from this list: Except you are missing social security, medicare, state income tax, federal unemployment tax, state unemployment tax, local income tax
+
+
